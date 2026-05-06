@@ -1,5 +1,5 @@
-#ifndef CLIENT_H
-#define CLIENT_H
+#ifndef CLIENT_HANDLER_H
+#define CLIENT_HANDLER_H
 
 #include <netinet/in.h>
 #include <stdbool.h>
