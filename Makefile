@@ -4,9 +4,11 @@ CFLAGS=-Wall -Wextra -g -std=gnu11 -fsanitize=address
 
 all: chatserver
 
-chatserver: chatserver.c client_handler.o
+chatserver: chatserver.c client_handler.o messages.o
 
-client_handler.o: client_handler.c client_handler.h
+client_handler.o: client_handler.c common.h
+
+messages.o: messages.c messages.h
 
 clean:
 	rm -f chatserver *.o

@@ -1,10 +1,14 @@
 #include <arpa/inet.h>
+#include <pthread.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "client_handler.h"
+#include "common.h"
+#include "messages.h"
 
 #define BUFSIZE 4096
 
@@ -45,40 +49,78 @@ bool client_queue_push(struct ClientQueue *q, struct Client c) {
   return true;
 }
 
-int client_handle(struct Client client) {
+void *client_listen(void *client_p) {
+  struct Client c = *(struct Client *)client_p;
+  int i = c.thread_no;
+  struct Message m;
+
+  // listen for new messages and send them down to the client
+  while (true) {
+    pthread_mutex_lock(&waiting_messages_mutexes[i]);
+    if (message_queue_is_empty(waiting_messages[i])) {
+      pthread_cond_wait(&waiting_messages_conds[i], &waiting_messages_mutexes[i]);
+    }
+    message_queue_pop(&waiting_messages[i], &m);
+    pthread_mutex_unlock(&waiting_messages_mutexes[i]);
+
+    char *message_str;
+    char addr_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(m.from_addr.sin_addr), addr_str, INET_ADDRSTRLEN);
+    asprintf(&message_str, "%s:%d SAYS %s", addr_str, m.from_addr.sin_port, m.message);
+    if (send(c.sock, message_str, strlen(message_str), 0) == -1) {
+      perror("send()");
+    }
+    free(message_str);
+  }
+  return NULL;
+}
+
+void client_handle(struct Client c) {
   // create printable client IP address in addr_p
   char addr_p[INET_ADDRSTRLEN];
-  inet_ntop(AF_INET, &(client.addr.sin_addr), addr_p, INET_ADDRSTRLEN);
+  inet_ntop(AF_INET, &(c.addr.sin_addr), addr_p, INET_ADDRSTRLEN);
 
-  printf("handling client connection (%s:%d)\n", addr_p, client.addr.sin_port);
+  printf("handling client connection (%s:%d)\n", addr_p, c.addr.sin_port);
+
+  pthread_t client_listener;
+  pthread_create(&client_listener, NULL, client_listen, &c);
 
   int received;
   char buf[BUFSIZE];
-  char *prefix = "ECHO! ";
 
-  if ((received = recv(client.sock, buf, BUFSIZE, 0)) == -1) {
+  if ((received = recv(c.sock, buf, BUFSIZE, 0)) == -1) {
     perror("recv()");
-    return 1;
+    return;
   }
 
+  // wait for messages from the client and put them in the message
+  // queue of all threads
   while (received > 0) {
-    if (send(client.sock, prefix, strlen(prefix), 0) == -1) {
-      perror("send()");
-      return 1;
+    struct Message m;
+    m.from_addr = c.addr;
+    m.from_addr_len = c.addr_len;
+    m.message = strndup(buf, BUFSIZE);
+
+    for (size_t i = 0; i < MAX_JOINED_CLIENTS; ++i) {
+      pthread_mutex_lock(&waiting_messages_mutexes[i]);
+
+      if (message_queue_push(&waiting_messages[i], m)) {
+        pthread_cond_signal(&waiting_messages_conds[i]);
+      } else {
+        fprintf(stderr, "message queue full.\n");
+        return;
+      }
+      pthread_mutex_unlock(&waiting_messages_mutexes[i]);
     }
 
-    if (send(client.sock, buf, received, 0) == -1) {
-      perror("send()");
-      return 1;
-    }
-
-    if ((received = recv(client.sock, buf, BUFSIZE, 0)) == -1) {
+    if ((received = recv(c.sock, buf, BUFSIZE, 0)) == -1) {
       perror("recv()");
-      return 1;
+      return;
     }
   }
 
-  printf("closing client connection (%s:%d)\n", addr_p, client.addr.sin_port);
-  close(client.sock);
-  return 0;
+
+  printf("closing client connection (%s:%d)\n", addr_p, c.addr.sin_port);
+  close(c.sock);
+  return;
 }

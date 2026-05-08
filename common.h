@@ -1,0 +1,8 @@
+#ifndef COMMON_H
+#define COMMON_H
+
+#define MAX_JOINED_CLIENTS 10
+#define MAX_WAITING_CLIENTS 10
+#define MAX_MESSAGES 100
+
+#endif
