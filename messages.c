@@ -1,7 +1,9 @@
+#include <arpa/inet.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "messages.h"
@@ -68,4 +70,17 @@ void waiting_messages_free(void) {
   for (size_t i = 0; i < MAX_JOINED_CLIENTS; ++i) {
     message_queue_free(waiting_messages[i]);
   }
+}
+
+bool message_serialize(void **buf, size_t *buf_len, struct Message m) {
+    char addr_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(m.from_addr.sin_addr), addr_str, INET_ADDRSTRLEN);
+    asprintf((char **)buf, "%s:%d SAYS %s", addr_str, m.from_addr.sin_port, m.message);
+    *buf_len = strlen(*buf);
+    return true;
+}
+
+bool message_deserialize(struct Message *m, void *buf, size_t buf_len) {
+  m -> message = strndup(buf, buf_len);
+  return true;
 }

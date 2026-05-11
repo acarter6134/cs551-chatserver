@@ -63,14 +63,14 @@ void *client_listen(void *client_p) {
     message_queue_pop(&waiting_messages[i], &m);
     pthread_mutex_unlock(&waiting_messages_mutexes[i]);
 
-    char *message_str;
-    char addr_str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &(m.from_addr.sin_addr), addr_str, INET_ADDRSTRLEN);
-    asprintf(&message_str, "%s:%d SAYS %s", addr_str, m.from_addr.sin_port, m.message);
-    if (send(c.sock, message_str, strlen(message_str), 0) == -1) {
+    void *message_buf;
+    size_t message_buf_len;
+    message_serialize(&message_buf, &message_buf_len, m);
+
+    if (send(c.sock, message_buf, message_buf_len, 0) == -1) {
       perror("send()");
     }
-    free(message_str);
+    free(message_buf);
   }
   return NULL;
 }
@@ -97,9 +97,9 @@ void client_handle(struct Client c) {
   // queue of all threads
   while (received > 0) {
     struct Message m;
+    message_deserialize(&m, buf, BUFSIZE);
     m.from_addr = c.addr;
     m.from_addr_len = c.addr_len;
-    m.message = strndup(buf, BUFSIZE);
 
     for (size_t i = 0; i < MAX_JOINED_CLIENTS; ++i) {
       pthread_mutex_lock(&waiting_messages_mutexes[i]);

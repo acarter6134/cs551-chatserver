@@ -31,6 +31,9 @@ bool message_queue_is_empty(struct MessageQueue);
 bool message_queue_is_full(struct MessageQueue);
 bool message_queue_pop(struct MessageQueue *, struct Message *);
 bool message_queue_push(struct MessageQueue *, struct Message);
+bool message_serialize(void **, size_t *, struct Message);
+bool message_deserialize(struct Message *, void *, size_t);
+
 bool waiting_messages_init(void);
 void waiting_messages_free(void);
 
