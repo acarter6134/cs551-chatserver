@@ -63,14 +63,12 @@ void *client_listen(void *client_p) {
     message_queue_pop(&waiting_messages[i], &m);
     pthread_mutex_unlock(&waiting_messages_mutexes[i]);
 
-    void *message_buf;
-    size_t message_buf_len;
-    message_serialize(&message_buf, &message_buf_len, m);
+    char *message_json = message_serialize(m);
 
-    if (send(c.sock, message_buf, message_buf_len, 0) == -1) {
+    if (send(c.sock, message_json, strlen(message_json), 0) == -1) {
       perror("send()");
     }
-    free(message_buf);
+    free(message_json);
   }
   return NULL;
 }
@@ -97,11 +95,11 @@ void client_handle(struct Client c) {
   // queue of all threads
   while (received > 0) {
     struct Message m;
-    message_deserialize(&m, buf, BUFSIZE);
+    bool deserialize_result = message_deserialize(buf, BUFSIZE, &m);
     m.from_addr = c.addr;
     m.from_addr_len = c.addr_len;
 
-    for (size_t i = 0; i < MAX_JOINED_CLIENTS; ++i) {
+    for (size_t i = 0; deserialize_result && i < MAX_JOINED_CLIENTS; ++i) {
       pthread_mutex_lock(&waiting_messages_mutexes[i]);
 
       if (message_queue_push(&waiting_messages[i], m)) {

@@ -6,7 +6,12 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "cJSON.h"
 #include "messages.h"
+
+pthread_mutex_t waiting_messages_mutexes[MAX_JOINED_CLIENTS];
+pthread_cond_t waiting_messages_conds[MAX_JOINED_CLIENTS];
+struct MessageQueue waiting_messages[MAX_JOINED_CLIENTS];
 
 struct MessageQueue message_queue_new(size_t cap, bool overwrite) {
   // NOTE: capacity is cap + 1 because ring-buffers need a dummy space
@@ -72,15 +77,43 @@ void waiting_messages_free(void) {
   }
 }
 
-bool message_serialize(void **buf, size_t *buf_len, struct Message m) {
-  char addr_str[INET_ADDRSTRLEN];
-  inet_ntop(AF_INET, &(m.from_addr.sin_addr), addr_str, INET_ADDRSTRLEN);
-  asprintf((char **)buf, "%s:%d SAYS %s", addr_str, m.from_addr.sin_port, m.message);
-  *buf_len = strlen(*buf);
-  return true;
+char *message_serialize(struct Message m) {
+  cJSON *message_json = cJSON_CreateObject();
+  cJSON_AddItemToObject(message_json,
+                        "message",
+                        cJSON_CreateString(m.message));
+
+  char from_addr_str[INET_ADDRSTRLEN];
+  inet_ntop(AF_INET, &(m.from_addr.sin_addr), from_addr_str, INET_ADDRSTRLEN);
+  cJSON_AddItemToObject(message_json,
+                        "from_addr",
+                        cJSON_CreateString(from_addr_str));
+  if (m.from_name) {
+    cJSON_AddItemToObject(message_json,
+                          "from_name",
+                          cJSON_CreateString(m.from_name));
+  }
+  return cJSON_Print(message_json);
 }
 
-bool message_deserialize(struct Message *m, void *buf, size_t buf_len) {
-  m->message = strndup(buf, buf_len);
+bool message_deserialize(char *json, size_t json_len, struct Message *m) {
+  const cJSON *message_json = cJSON_ParseWithLength(json, json_len);
+  if (!message_json) {
+    return false;
+  }
+
+  const cJSON *from_name_json = cJSON_GetObjectItem(message_json, "from_name");
+  m ->from_name = cJSON_GetStringValue(from_name_json);
+
+  const cJSON *from_addr_json = cJSON_GetObjectItem(message_json, "from_addr");
+  const char *from_addr_str = cJSON_GetStringValue(from_addr_json);
+  if (from_addr_str) {
+    inet_pton(AF_INET, from_addr_str, &m->from_addr);
+    m->from_addr_len = sizeof(m->from_addr);
+  }
+
+  const cJSON *message_message_json = cJSON_GetObjectItem(message_json, "from_name");
+  m->message = cJSON_GetStringValue(message_message_json);
+
   return true;
 }
