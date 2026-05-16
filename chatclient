@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+print_usage() {
+	printf 'Usage: %s: [-u username] host port\n' "$0"
+}
+
+user_name="anonymous"
+to_json() {
+	jq -n --arg 'message' "$1" --arg 'from_name' "$user_name" '{message: $message, from_name: $from_name}'
+}
+
+from_json() {
+	jq -r '.from_name + " (" + .from_addr + "): " + .message'
+}
+
+while getopts 'hu:' "opt"; do
+	case "$opt" in
+	'u')
+		user_name="$OPTARG"
+		;;
+	'h')
+		print_usage
+		exit 0
+		;;
+	'?')
+		print_usage
+		exit 2
+		;;
+	esac
+done
+shift $((OPTIND - 1))
+
+host="$1"
+port="$2"
+
+if [ -z "$host" ] || [ -z "$port" ]; then
+	print_usage
+	exit 1
+fi
+
+in_pipe=$(mktemp -u)
+mkfifo -m 777 "$in_pipe"
+trap 'rm -f ${in_pipe}' EXIT
+
+nc -z "$host" "$port"
+nc "$host" "$port" < "$in_pipe" &
+
+while read -r line; do
+	to_json "$line"
+done > "$in_pipe"
